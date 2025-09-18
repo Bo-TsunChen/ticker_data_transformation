@@ -1,0 +1,18 @@
+# pyproject.toml
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+py_version = 312
+known_first_party = ["ticker_data_transformation"]
+skip = ["data"]  # avoid touching raw data folders
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]  # compatible with black
+per-file-ignores = [
+  "__init__.py:F401"   # allow package exports
+]
