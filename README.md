@@ -9,7 +9,7 @@ python -m venv .venv311
 source .venv311/bin/activate        # adjust for your shell/OS
 
 # install Python dependencies
-pip install pyspark pandas plotly    # pandas/plotly only needed for plotting
+pip install -r requirements.txt
 
 # install Java (PySpark needs a JRE/JDK)
 # macOS (Homebrew)
