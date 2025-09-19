@@ -17,7 +17,7 @@ brew install openjdk@11
 export JAVA_HOME="$(/usr/libexec/java_home -v11)"
 
 # macOS (manual download)
-# download OpenJDK pkg from https://adoptium.net, install it, then:
+# download OpenJDK pkg from (JDK v11 Download)[https://adoptium.net/en-GB/temurin/releases?version=11&os=any&arch=any], install it, then:
 export JAVA_HOME="/Library/Java/JavaVirtualMachines/temurin-11.jdk/Contents/Home"
 
 # Linux (apt example)
