@@ -1,34 +1,28 @@
-"""Command-line pipeline that converts ticker index data to daily cadence.
-
-Given an input CSV in the same layout used throughout the notebook, the script
-identifies the lowest-duration series per (ticker, index), expands those
-periods into daily rows, and writes the result to a single output location.
-"""
+"""Daily transformation pipeline for ticker index data."""
 
 from __future__ import annotations
 
 import argparse
-import glob
-import os
-import shutil
-from typing import List
 
-from pyspark.sql import DataFrame, SparkSession, Window
+if __package__ in {None, ""}:
+    import os
+    import sys
+
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from pyspark.sql import functions as f
-from pyspark.sql.types import DateType
 
-DURATION_ORDER = [
-    ("Week", 0),
-    ("Month", 1),
-    ("Quarter", 2),
-    ("Year", 3),
-    ("Mid-month", 4),
-    ("Custom Quarter", 5),
-]
+from src.utils import (
+    align_to_raw_schema,
+    build_daily_rows,
+    build_spark,
+    read_source,
+    write_dataframe,
+)
 
 
 def parse_args() -> argparse.Namespace:
-    """Define CLI arguments for the daily conversion pipeline."""
+    """Parse CLI arguments for the daily transformation pipeline."""
 
     parser = argparse.ArgumentParser(description="Convert index data to daily rows")
     parser.add_argument("--input", required=True, help="Path to the source CSV file")
@@ -46,146 +40,71 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_spark(app_name: str) -> SparkSession:
-    """Create Spark session with a fixed timezone so date math is deterministic."""
+def load_raw(args: argparse.Namespace, spark):
+    """Load the raw index feed into a Spark DataFrame."""
 
-    spark = SparkSession.builder.appName(app_name).getOrCreate()
-    spark.conf.set("spark.sql.session.timeZone", "UTC")
-    return spark
+    return read_source(spark, args.input)
 
 
-def read_source(spark: SparkSession, path: str) -> DataFrame:
-    """Load the raw CSV with header and schema inference enabled."""
+def show_cumulative_plot(df):
+    """Render an interactive line chart of cumulative values by ticker/index."""
 
-    return spark.read.option("header", True).option("inferSchema", True).csv(path)
+    try:
+        import pandas as pd
+        import plotly.express as px
+    except ImportError as exc:  # pragma: no cover - convenience for CLI usage
+        raise RuntimeError(
+            "Plotting requires pandas and plotly; install them or drop the --plot flag."
+        ) from exc
 
-
-def lowest_duration_per_index(df: DataFrame, spark: SparkSession) -> DataFrame:
-    """Pick the finest cadence per (ticker, index) so daily expansion is consistent."""
-
-    duration_lookup = spark.createDataFrame(DURATION_ORDER, ["DURATION", "duration_rank"])
-
-    ranked = (
-        df.select("TICKER", "INDEXNAME", "DURATION")
-        .dropDuplicates()
-        .join(duration_lookup, "DURATION", "left")
-        .withColumn("duration_rank", f.coalesce(f.col("duration_rank"), f.lit(999)))
+    pdf = (
+        df.filter(f.col("DURATION") == "Day")
+        .withColumn("ticker_index", f.concat_ws("-", f.col("TICKER"), f.col("INDEXNAME")))
+        .select("PERIODEND", "CUMULATIVEVALUE", "ticker_index")
+        .toPandas()
     )
 
-    window = Window.partitionBy("TICKER", "INDEXNAME").orderBy("duration_rank", "DURATION")
+    if pdf.empty:
+        print("No day-level rows available to plot.")
+        return
 
-    return (
-        ranked.withColumn("rn", f.row_number().over(window))
-        .filter(f.col("rn") == 1)
-        .select("TICKER", "INDEXNAME", "DURATION")
+    pdf["PERIODEND"] = pd.to_datetime(pdf["PERIODEND"])
+
+    fig = px.line(
+        pdf,
+        x="PERIODEND",
+        y="CUMULATIVEVALUE",
+        color="ticker_index",
+        title="Daily cumulative value by index",
+        markers=True,
+        labels={
+            "PERIODEND": "Date",
+            "CUMULATIVEVALUE": "Cumulative Value",
+            "ticker_index": "Series",
+        },
     )
-
-
-def build_daily_rows(raw: DataFrame, spark: SparkSession) -> DataFrame:
-    """Explode period-level rows into daily observations with interpolated values."""
-
-    lowest_idx = lowest_duration_per_index(raw, spark)
-
-    filtered = (
-        # Keep one cadence per series so the downstream daily expansion behaves predictably.
-        raw.join(lowest_idx, ["TICKER", "INDEXNAME", "DURATION"], "inner")
-        .withColumn("PERIODEND_DATE", f.to_date("PERIODEND"))
-        .withColumn("VALUE", f.col("VALUE").cast("double"))
-        .withColumn("CUMULATIVEVALUE", f.col("CUMULATIVEVALUE").cast("double"))
-    )
-
-    # Access the previous observation so we can interpolate across the exact span it covers.
-    window = Window.partitionBy("TICKER", "INDEXNAME").orderBy("PERIODEND_DATE")
-
-    enriched = (
-        filtered.withColumn("prev_period_end", f.lag("PERIODEND_DATE").over(window))
-        .withColumn("prev_cum", f.lag("CUMULATIVEVALUE").over(window))
-        .filter(f.col("prev_period_end").isNotNull())
-        .withColumn("span_start", f.col("prev_period_end"))
-        .withColumn("span_end", f.date_sub("PERIODEND_DATE", 1))
-        .withColumn(
-            "days_in_period",
-            f.greatest(f.datediff("span_end", "span_start") + f.lit(1), f.lit(1)),
-        )
-        .withColumn("daily_value", f.col("VALUE") / f.col("days_in_period"))
-        .withColumn("prev_cum", f.coalesce(f.col("prev_cum"), f.lit(0.0)))
-        .withColumn("date_seq", f.sequence("span_start", "span_end"))
-    )
-
-    # Emit one row per calendar day so the final cumulative matches the period totals.
-    exploded = (
-        enriched.withColumn("DAY_DATE", f.explode("date_seq"))
-        .withColumn("day_offset", f.datediff("DAY_DATE", f.col("span_start")))
-        .withColumn("VALUE", f.col("daily_value"))
-        .withColumn(
-            "CUMULATIVEVALUE",
-            f.col("prev_cum") + (f.col("day_offset") + f.lit(1)) * f.col("daily_value"),
-        )
-        .select("TICKER", "INDEXNAME", "DAY_DATE", "VALUE", "CUMULATIVEVALUE")
-    )
-
-    return exploded
-
-
-def align_to_raw_schema(daily: DataFrame, raw_schema) -> DataFrame:
-    """Project daily rows into the original schema order and types."""
-
-    columns: List = []
-
-    # Iterate over the original schema so downstream unions stay aligned.
-    for field in raw_schema:
-        name = field.name
-        if name == "PERIODEND":
-            if isinstance(field.dataType, DateType):
-                col = f.col("DAY_DATE").cast(DateType())
-            else:
-                col = f.date_format("DAY_DATE", "yyyy-MM-dd")
-        elif name == "DURATION":
-            col = f.lit("Day")
-        elif name in {"VALUE", "CUMULATIVEVALUE"}:
-            col = f.col(name)
-        elif name in daily.columns:
-            col = f.col(name)
-        else:
-            col = f.lit(None).cast(field.dataType)
-        columns.append(col.alias(name))
-
-    return daily.select(*columns)
-
-
-def write_dataframe(df: DataFrame, path: str) -> None:
-    """Persist the dataframe, collapsing to a single CSV when requested."""
-
-    if path.lower().endswith(".csv"):
-        # Spark writes folders by default; stage to a temp dir then move the single part file.
-        tmp_path = f"{path}.tmp"
-        tmp_parent = os.path.dirname(tmp_path) or "."
-        os.makedirs(tmp_parent, exist_ok=True)
-        (df.coalesce(1).write.mode("overwrite").option("header", True).csv(tmp_path))
-        part_files = glob.glob(os.path.join(tmp_path, "part-*.csv"))
-        if not part_files:
-            raise FileNotFoundError(f"No part file generated at {tmp_path}")
-        target_dir = os.path.dirname(path) or "."
-        os.makedirs(target_dir, exist_ok=True)
-        shutil.move(part_files[0], path)
-        shutil.rmtree(tmp_path)
-    else:
-        parent = os.path.dirname(path) or "."
-        os.makedirs(parent, exist_ok=True)
-        # Leave Spark's native directory output intact when a folder destination is requested.
-        (df.write.mode("overwrite").option("header", True).csv(path))
+    fig.show()
 
 
 def main() -> None:
+    """Entry point for the daily pipeline CLI."""
+
     args = parse_args()
     spark = build_spark(args.app_name)
+    spark.sparkContext.setLogLevel("ERROR")
 
-    raw = read_source(spark, args.input)
+    raw = load_raw(args, spark)
 
+    # Expand each ticker/index pair using its lowest cadence so downstream work sees day-level observations.
     daily_rows = build_daily_rows(raw, spark)
+    # Project the daily rows back into the original schema so we can union/write alongside the source feed.
     aligned_daily = align_to_raw_schema(daily_rows, raw.schema)
 
     write_dataframe(aligned_daily, args.output)
+
+    if args.plot:
+        result_with_daily = raw.unionByName(aligned_daily, allowMissingColumns=True)
+        show_cumulative_plot(result_with_daily)
 
     spark.stop()
 
