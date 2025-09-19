@@ -13,7 +13,6 @@ pip install pyspark pandas plotly    # pandas/plotly only needed for plotting
 - Source feed: `data/index.csv`
 - Daily output: `output/dailyindex.csv`
 - Quarterly midpoint output: `output/quarterlyindex.csv`
-- Optional full forecast timeline: `output/quarterly_full.csv`
 
 ## 3. Daily Conversion Pipeline
 Fans each ticker/index to day-level rows while preserving period totals.
