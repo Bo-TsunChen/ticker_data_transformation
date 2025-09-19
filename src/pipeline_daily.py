@@ -93,19 +93,24 @@ def main() -> None:
     spark = build_spark(args.app_name)
     spark.sparkContext.setLogLevel("ERROR")
 
+    print("[daily] reading source CSV...")
     raw = load_raw(args, spark)
 
     # Expand each ticker/index pair using its lowest cadence so downstream work sees day-level observations.
+    print("[daily] expanding to day-level rows...")
     daily_rows = build_daily_rows(raw, spark)
     # Project the daily rows back into the original schema so we can union/write alongside the source feed.
     aligned_daily = align_to_raw_schema(daily_rows, raw.schema)
 
+    print(f"[daily] writing output to {args.output}...")
     write_dataframe(aligned_daily, args.output)
 
     if args.plot:
         result_with_daily = raw.unionByName(aligned_daily, allowMissingColumns=True)
+        print("[daily] rendering cumulative plot...")
         show_cumulative_plot(result_with_daily)
 
+    print("[daily] completed.")
     spark.stop()
 
 
