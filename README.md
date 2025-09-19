@@ -39,10 +39,9 @@ env JDK_PATH="C:\Program Files\Eclipse Adoptium\jdk-11" ; \
 ## 3. Daily Conversion Pipeline
 Fans each ticker/index to day-level rows while preserving period totals.
 ```bash
-python pipeline.py \
+python src/pipeline_daily.py \
   --input data/index.csv \
-  --output output/dailyindex.csv \
-  [--app-name DailyTransformation]
+  --output output/dailyindex.csv
 ```
 Console progress: `[daily] reading source CSV...` → `[daily] expanding...` → `[daily] writing output...` → (optional) `[daily] rendering cumulative plot...` → `[daily] completed.`
 
@@ -51,9 +50,7 @@ Consumes the day-level feed and blends run-rate/seasonal forecasts. Mid-quarter 
 ```bash
 python src/pipeline_quarterly.py \
   --input output/dailyindex.csv \
-  --output output/quarterlyindex.csv \
-  [--weight 0.7] \
-  [--app-name QuarterlyForecast]
+  --output output/quarterlyindex.csv
 ```
 Console progress: `[quarterly] loading day-level feed...` → `[quarterly] computing daily forecasts...` → `[quarterly] selecting mid-quarter snapshots...` → `[quarterly] writing midpoint output...` → (optional) `[quarterly] writing full timeline...` → `[quarterly] completed.`
 
@@ -70,29 +67,35 @@ Console progress: `[quarterly] loading day-level feed...` → `[quarterly] compu
 - Year one falls back to simple extrapolation (no seasonal history yet); later years have enough data for seasonal proportions.
 - Seasonal patterns are assumed to be stable across matching quarters (e.g., Q2 year over year).
 - Simple extrapolation assumes the quarter-to-date daily rate persists.
-- Hybrid forecast blends run-rate/seasonal estimates; default weight is `0.7` / `0.3` but configurable via `--weight`.
+- Hybrid forecast blends run-rate/seasonal estimates; default weight is `0.7` / `0.3` but configurable.
 - Pipelines emit two CSVs plus this README so the process is reproducible.
 - Forecast error is `(forecast - actual) / actual`, rounded to four decimals.
 
-## 6. Optional Enhancements
+## 6. Future Enhancements
 - Add schema/data-quality validation before running the pipelines.
 - Provide backtesting metrics (MAPE, RMSE) by ticker/index.
 - Introduce a unified CLI with `daily`/`quarterly` subcommands and dry-run support.
 - Add automated tests for `src/utils.py` helpers.
 
-## 7. Limitations
+## 7. Challenges
+- Mixed cadence in index.csv forced you to detect each ticker/index’s lowest duration and expand it to daily rows without breaking totals.
+- Mid-quarter forecasts hinge on seasonality; limited history means the hybrid model must fall back to simple run-rate when seasonal curves aren’t reliable.
+- The pipelines assume a clean feed (no missing VALUE/CUMULATIVEVALUE, stable schema) because there’s no validation layer yet.
+- PySpark requires a local JRE/JDK; documenting the cross-platform setup was necessary so others can run the code.
+
+## 8. Limitations
 - Unexpected shocks (policy changes, market events) are not modelled.
 - Accuracy hinges on seasonal stability year over year.
 - Mid-quarter estimates carry uncertainty; downstream consumers should treat them as estimates (add error bands if needed).
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 | Issue | Likely Fix |
 | --- | --- |
 | `ModuleNotFoundError: pyspark` | Install requirements in the active virtual env (`pip install pyspark`). |
 | Excess Spark WARN logs | Log level defaults to `ERROR`; ensure no custom config overrides it. |
 | Missing outputs | Writers create directories automatically; check permissions if files are absent. |
 
-## 9. Repository Layout
+## 10. Repository Layout
 ```
 .
 ├── data/
