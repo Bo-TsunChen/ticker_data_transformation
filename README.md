@@ -43,7 +43,7 @@ python src/pipeline_daily.py \
   --input data/index.csv \
   --output output/dailyindex.csv
 ```
-Console progress: `[daily] reading source CSV...` → `[daily] expanding...` → `[daily] writing output...` → (optional) `[daily] rendering cumulative plot...` → `[daily] completed.`
+Console progress: `[daily] reading source CSV...` → `[daily] expanding...` → `[daily] writing output...` → `[daily] completed.`
 
 ## 4. Quarterly Forecast Pipeline
 Consumes the day-level feed and blends run-rate/seasonal forecasts. Mid-quarter is the point two calendar months into a quarter.
@@ -52,7 +52,7 @@ python src/pipeline_quarterly.py \
   --input output/dailyindex.csv \
   --output output/quarterlyindex.csv
 ```
-Console progress: `[quarterly] loading day-level feed...` → `[quarterly] computing daily forecasts...` → `[quarterly] selecting mid-quarter snapshots...` → `[quarterly] writing midpoint output...` → (optional) `[quarterly] writing full timeline...` → `[quarterly] completed.`
+Console progress: `[quarterly] loading day-level feed...` → `[quarterly] computing daily forecasts...` → `[quarterly] selecting mid-quarter snapshots...` → `[quarterly] writing midpoint output...` → `[quarterly] completed.`
 
 > Run the daily pipeline first so `output/dailyindex.csv` exists (or supply a day-level feed with the same schema).
 
