@@ -210,17 +210,23 @@ def main() -> None:
     spark = build_spark(args.app_name)
     spark.sparkContext.setLogLevel("ERROR")
 
+    print("[quarterly] loading day-level feed...")
     daily = load_daily_frame(spark, args.input)
 
+    print("[quarterly] computing daily forecasts...")
     forecast_daily = compute_forecasts(daily, args.weight)
+    print("[quarterly] selecting mid-quarter snapshots...")
     midpoints = pick_midpoints(forecast_daily)
     formatted_midpoints = format_midpoints(midpoints)
 
+    print(f"[quarterly] writing midpoint output to {args.output}...")
     write_dataframe(formatted_midpoints, args.output)
 
     if args.full_output:
+        print(f"[quarterly] writing full timeline to {args.full_output}...")
         write_dataframe(forecast_daily, args.full_output)
 
+    print("[quarterly] completed.")
     spark.stop()
 
 
