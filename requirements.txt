@@ -1,0 +1,4 @@
+pyspark==3.5.1
+pandas==2.3.2    # only if you use --plot
+plotly==6.3.0    # only if you use --plot
+
