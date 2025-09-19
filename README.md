@@ -25,7 +25,7 @@ sudo apt-get install openjdk-11-jdk
 export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
 
 # Windows (PowerShell example)
-# install OpenJDK 11 from https://adoptium.net and set JAVA_HOME
+# install OpenJDK 11 from (JDK v11 Download)[https://adoptium.net/en-GB/temurin/releases?version=11&os=any&arch=any] and set JAVA_HOME
 env JDK_PATH="C:\Program Files\Eclipse Adoptium\jdk-11" ; \
   setx JAVA_HOME $Env:JDK_PATH ; \
   setx PATH "$Env:JDK_PATH\bin;$Env:PATH"
